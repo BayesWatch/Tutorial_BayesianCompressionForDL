@@ -248,8 +248,10 @@ class _ConvNdGroupNJ(Module):
 
     def compute_posterior_params(self):
         weight_var, z_var = self.weight_logvar.exp(), self.z_logvar.exp()
-        self.post_weight_var = self.z_mu.pow(2) * weight_var + z_var * self.weight_mu.pow(2) + z_var * weight_var
-        self.post_weight_mu = self.weight_mu * self.z_mu
+        z_var = z_var.view(z_var.size(0), 1, 1, 1)
+        z_mu = self.z_mu.view(z_var.size(0), 1, 1, 1)
+        self.post_weight_var = z_mu.pow(2) * weight_var + z_var * self.weight_mu.pow(2) + z_var * weight_var
+        self.post_weight_mu = self.weight_mu * z_mu
         return self.post_weight_mu, self.post_weight_var
 
     def kl_divergence(self):
@@ -347,7 +349,8 @@ class Conv2dGroupNJ(_ConvNdGroupNJ):
     def forward(self, x):
         if self.deterministic:
             assert self.training == False, "Flag deterministic is True. This should not be used in training."
-            return F.conv2d(x, self.post_weight_mu, self.bias_mu)
+            return F.conv2d(x, self.post_weight_mu, self.bias_mu, self.stride,
+                    self.padding, self.dilation, self.groups)
         batch_size = x.size()[0]
         # apply local reparametrisation trick see [1] Eq. (6)
         # to the parametrisation given in [3] Eq. (6)
