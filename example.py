@@ -56,17 +56,22 @@ def main():
             # activation
             self.relu = nn.ReLU()
             # layers
-            self.fc1 = BayesianLayers.LinearGroupNJ(28 * 28, 300, clip_var=0.04, cuda=FLAGS.cuda)
-            self.fc2 = BayesianLayers.LinearGroupNJ(300, 100, cuda=FLAGS.cuda)
-            self.fc3 = BayesianLayers.LinearGroupNJ(100, 10, cuda=FLAGS.cuda)
+            self.conv1 = BayesianLayers.Conv2dGroupNJ(1, 64, 3, stride=2, clip_var=0.04, padding=1, cuda=FLAGS.cuda)
+            self.conv2 = BayesianLayers.Conv2dGroupNJ(64, 64, 3, stride=2, clip_var=0.04, padding=1, cuda=FLAGS.cuda)
+            self.fc3 = BayesianLayers.LinearGroupNJ(3136, 10, cuda=FLAGS.cuda)
             # layers including kl_divergence
-            self.kl_list = [self.fc1, self.fc2, self.fc3]
+            self.kl_list = [self.conv1, self.conv2, self.fc3]
 
         def forward(self, x):
-            x = x.view(-1, 28 * 28)
-            x = self.relu(self.fc1(x))
-            x = self.relu(self.fc2(x))
-            return self.fc3(x)
+            x = self.relu(self.conv1(x))
+            x = self.relu(self.conv2(x))
+            try:
+                n,c,w,h = x.size()
+                x = x.view(n, c*w*h)
+                return self.fc3(x)
+            except:
+                import pdb
+                pdb.set_trace()
 
         def get_masks(self,thresholds):
             weight_masks = []
@@ -84,8 +89,13 @@ def main():
                 except:
                     # must be the last mask
                     next_mask = np.ones(10)
-
-                weight_mask = np.expand_dims(mask, axis=0) * np.expand_dims(next_mask, axis=1)
+                
+                # mask should be shape of weight in associated layer
+                if len(layer.weight_mu.size()) == 2:
+                    mask_shape = (1, -1)
+                elif len(layer.weight_mu.size()) == 4:
+                    mask_shape = (-1, 1, 1, 1)
+                weight_mask = np.ones([x for x in layer.weight_mu.size()])*mask.reshape(mask_shape)
                 weight_masks.append(weight_mask.astype(np.float))
             return weight_masks
 
@@ -101,7 +111,12 @@ def main():
         model.cuda()
 
     # init optimizer
-    optimizer = optim.Adam(model.parameters())
+    #optimizer = optim.Adam(model.parameters())
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
+
+    def clip_grads(model, clip=0.2):
+        for p in model.parameters():
+            p.grad.data.clamp_(-clip, clip)
 
     # we optimize the variational lower bound scaled by the number of data
     # points (so we can keep our intuitions about hyper-params such as the learning rate)
@@ -124,6 +139,7 @@ def main():
             output = model(data)
             loss = objective(output, target, model.kl_divergence())
             loss.backward()
+            clip_grads(model)
             optimizer.step()
             # clip the variances after each step
             for layer in model.kl_list:
@@ -153,21 +169,21 @@ def main():
         train(epoch)
         test()
         # visualizations
-        weight_mus = [model.fc1.weight_mu, model.fc2.weight_mu]
-        log_alphas = [model.fc1.get_log_dropout_rates(), model.fc2.get_log_dropout_rates(),
-                      model.fc3.get_log_dropout_rates()]
-        visualise_weights(weight_mus, log_alphas, epoch=epoch)
-        log_alpha = model.fc1.get_log_dropout_rates().cpu().data.numpy()
-        visualize_pixel_importance(images, log_alpha=log_alpha, epoch=str(epoch))
+        #weight_mus = [model.fc1.weight_mu, model.fc2.weight_mu]
+        #log_alphas = [model.fc1.get_log_dropout_rates(), model.fc2.get_log_dropout_rates(),
+        #              model.fc3.get_log_dropout_rates()]
+        #visualise_weights(weight_mus, log_alphas, epoch=epoch)
+        #log_alpha = model.fc1.get_log_dropout_rates().cpu().data.numpy()
+        #visualize_pixel_importance(images, log_alpha=log_alpha, epoch=str(epoch))
 
-    generate_gif(save='pixel', epochs=FLAGS.epochs)
-    generate_gif(save='weight0_e', epochs=FLAGS.epochs)
-    generate_gif(save='weight1_e', epochs=FLAGS.epochs)
+    #generate_gif(save='pixel', epochs=FLAGS.epochs)
+    #generate_gif(save='weight0_e', epochs=FLAGS.epochs)
+    #generate_gif(save='weight1_e', epochs=FLAGS.epochs)
 
     # compute compression rate and new model accuracy
-    layers = [model.fc1, model.fc2, model.fc3]
+    layers = [model.conv1, model.conv2, model.fc3]
     thresholds = FLAGS.thresholds
-    compute_compression_rate(layers, model.get_masks(thresholds))
+    #compute_compression_rate(layers, model.get_masks(thresholds))
 
     print("Test error after with reduced bit precision:")
 

@@ -121,7 +121,7 @@ def compute_compression_rate(layers, masks):
     overflow = np.max([np.max(np.abs(w)) for w in weight_mus])
     # compute compression rate
     CR_architecture, CR_fast_inference, _, _ = _compute_compression_rate(weight_vars, dist_fun=lambda x: np.mean(x), overflow=overflow)
-    print("Compressing the architecture will degrease the model by a factor of %.1f." % (CR_architecture))
+    print("Compressing the architecture will decrease the model by a factor of %.1f." % (CR_architecture))
     print("Making use of weight uncertainty can reduce the model by a factor of %.1f." % (CR_fast_inference))
 
 
